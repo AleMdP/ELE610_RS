@@ -1,0 +1,98 @@
+MODULE E458GripperTest
+    TASK PERS wobjdata wobjTableN:=[FALSE,TRUE,"",[[150,-500,8],[0.707106781,0,0,-0.707106781]],[[0,0,0],[1,0,0,0]]];
+
+    CONST speeddata vSlow := v100;
+    CONST speeddata vFast := v1000;
+    CONST num puckHeight := 30;   
+    CONST num safeHeight := 240;  
+    CONST num nPos := 7;          
+
+    VAR num lastPosNo := 0;
+    PERS num nonPos{7} := [5,0,0,0,0,0,0]; 
+
+    VAR robtarget targets{7}:=[
+        [[0,-200,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]],
+        [[200,-200,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]],
+        [[0,0,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]],
+        [[200,0,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]],
+        [[-200,200,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]],
+        [[0,200,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]],
+        [[200,200,0],[0,1,0,0],[-1,0,0,0],[9E+09,9E+09,9E+09,9E+09,9E+09,9E+09]]
+    ];
+
+    PROC main()
+        movePuck 1, 4;
+        movePuck 4, 1;
+    ENDPROC
+    
+    
+    PROC movePuck(num fromPosNo, num toPosNo)
+        VAR robtarget pPick;
+        VAR robtarget pPlace;
+        VAR robtarget pSafe;
+
+        ! Validaciones de seguridad
+        IF fromPosNo < 1 OR fromPosNo > nPos OR toPosNo < 1 OR toPosNo > nPos THEN
+            TPWrite "ERROR: Posicion fuera de rango (1-7).";
+            RETURN;
+        ENDIF
+        
+        IF nonPos{fromPosNo} <= 0 THEN
+            TPWrite "ERROR: No hay discos en la posicion origen.";
+            RETURN;
+        ENDIF
+        
+        IF fromPosNo = toPosNo THEN
+            TPWrite "ERROR: Origen y destino no pueden ser iguales.";
+            RETURN;
+        ENDIF
+
+        ! 1. Calcular punto exacto de recogida (Pick) segun los discos apilados
+        pPick := targets{fromPosNo};
+        pPick.trans.z := pPick.trans.z + ((nonPos{fromPosNo} - 1) * puckHeight);
+
+        ! 2. Calcular punto exacto de colocacion (Place)
+        pPlace := targets{toPosNo};
+        pPlace.trans.z := pPlace.trans.z + (nonPos{toPosNo} * puckHeight);
+
+        ! Pasar por altura segura si venimos de otra posicion
+        IF lastPosNo <> fromPosNo THEN
+            pSafe := pPick;
+            pSafe.trans.z := safeHeight;
+            MoveL pSafe, vFast, z50, tGripper \WObj:=wobjTableN;
+        ENDIF
+
+        ! Aproximarse despacio a la posicion del disco y abrir pinza
+        openGripper;
+        MoveL Offs(pPick, 0, 0, 20), vFast, z10, tGripper \WObj:=wobjTableN;
+        MoveL pPick, vSlow, fine, tGripper \WObj:=wobjTableN;
+        
+        ! Agarrar el disco
+        closeGripper;
+
+        ! Subir a la altura de seguridad con el disco
+        pSafe := pPick;
+        pSafe.trans.z := safeHeight;
+        MoveL pSafe, vFast, z50, tGripper \WObj:=wobjTableN;
+
+        ! Desplazarse horizontalmente a la vertical de la posicion destino
+        pSafe := pPlace;
+        pSafe.trans.z := safeHeight;
+        MoveL pSafe, vFast, z50, tGripper \WObj:=wobjTableN;
+
+        ! Bajar despacio y colocar el disco
+        MoveL Offs(pPlace, 0, 0, 20), vSlow, z10, tGripper \WObj:=wobjTableN;
+        MoveL pPlace, vSlow, fine, tGripper \WObj:=wobjTableN;
+        
+        ! Soltar el disco
+        openGripper;
+
+        ! Actualizar inventario de discos y ultima posicion visitada
+        nonPos{fromPosNo} := nonPos{fromPosNo} - 1;
+        nonPos{toPosNo} := nonPos{toPosNo} + 1;
+        lastPosNo := toPosNo;
+
+        ! Elevar la pinza a 2 veces la altura del disco
+        MoveL Offs(pPlace, 0, 0, puckHeight * 2), vFast, z10, tGripper \WObj:=wobjTableN;
+    ENDPROC
+ENDMODULE
